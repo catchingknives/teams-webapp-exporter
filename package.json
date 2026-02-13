@@ -1,0 +1,11 @@
+{
+  "name": "teams-chat-exporter",
+  "version": "1.0.0",
+  "description": "Export all MS Teams chats to Markdown via Playwright browser automation",
+  "scripts": {
+    "export": "npx tsx export-all.ts"
+  },
+  "dependencies": {
+    "playwright-core": "^1.50.0"
+  }
+}
