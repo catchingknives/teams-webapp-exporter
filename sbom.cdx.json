@@ -1,0 +1,85 @@
+{
+  "$schema": "http://cyclonedx.org/schema/bom-1.5.schema.json",
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "serialNumber": "urn:uuid:bb4f09ef-0ce2-4cb2-b317-16f37da29573",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-02-13T20:11:40.150Z",
+    "lifecycles": [
+      {
+        "phase": "build"
+      }
+    ],
+    "tools": [
+      {
+        "vendor": "npm",
+        "name": "cli",
+        "version": "11.9.0"
+      }
+    ],
+    "component": {
+      "bom-ref": "teams-chat-exporter@1.0.0",
+      "type": "library",
+      "name": "teams-webapp-exporter",
+      "version": "1.0.0",
+      "scope": "required",
+      "description": "Export all MS Teams chats to Markdown via Playwright browser automation",
+      "purl": "pkg:npm/teams-chat-exporter@1.0.0",
+      "properties": [],
+      "externalReferences": []
+    }
+  },
+  "components": [
+    {
+      "bom-ref": "playwright-core@1.58.2",
+      "type": "library",
+      "name": "playwright-core",
+      "version": "1.58.2",
+      "scope": "required",
+      "author": "Microsoft Corporation",
+      "description": "A high-level API to automate web browsers",
+      "purl": "pkg:npm/playwright-core@1.58.2",
+      "properties": [],
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://registry.npmjs.org/playwright-core/-/playwright-core-1.58.2.tgz"
+        },
+        {
+          "type": "vcs",
+          "url": "git+https://github.com/microsoft/playwright.git"
+        },
+        {
+          "type": "website",
+          "url": "https://playwright.dev"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-512",
+          "content": "c99904b5fb60c12f02b1f628ee79b4284f23b2f9ba8bf3d3815b41f032fbdbac0d7fa1f620cb03bb10a9263e7d2836b10ad4a7ad66a7d80783a8cec905aba5b6"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    {
+      "ref": "teams-chat-exporter@1.0.0",
+      "dependsOn": [
+        "playwright-core@1.58.2"
+      ]
+    },
+    {
+      "ref": "playwright-core@1.58.2",
+      "dependsOn": []
+    }
+  ]
+}

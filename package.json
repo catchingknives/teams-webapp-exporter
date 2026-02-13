@@ -6,7 +6,8 @@
   "scripts": {
     "export": "npx tsx export-all.ts",
     "test": "vitest run",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "sbom": "npm sbom --sbom-format cyclonedx --omit=dev > sbom.cdx.json"
   },
   "dependencies": {
     "playwright-core": "^1.50.0"
