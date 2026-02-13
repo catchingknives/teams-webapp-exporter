@@ -122,6 +122,14 @@ npm run lint      # Run ESLint
 
 53 tests across 4 modules: message extraction, Markdown conversion, retention analysis, and Graph API chat discovery. Tests use temp directories for file I/O and mock `fetch` for API calls — no network or browser needed.
 
+## SBOM
+
+A CycloneDX Software Bill of Materials is included at [`sbom.cdx.json`](sbom.cdx.json) covering production dependencies only. Regenerate after dependency changes:
+
+```bash
+npm run sbom
+```
+
 ## License
 
 MIT — see [LICENSE](LICENSE). Original work copyright (c) 2021-2026 Ingo Muschenetz.
