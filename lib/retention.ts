@@ -62,9 +62,15 @@ export interface VisibilityAnalysis {
 }
 
 /**
- * Parse DD.MM.YYYY from the markdown timestamp format: [DD.MM.YYYY, HH:MM]
+ * Parse a timestamp string from bracket notation in exported markdown.
+ * Supports ISO 8601 (current format) and legacy DD.MM.YYYY, HH:MM (German locale).
  */
-function parseGermanDate(dateStr: string): Date | null {
+function parseTimestamp(dateStr: string): Date | null {
+  // Try ISO 8601 first (current format)
+  const isoDate = new Date(dateStr);
+  if (!isNaN(isoDate.getTime())) return isoDate;
+
+  // Fall back to legacy German format: DD.MM.YYYY, HH:MM
   const m = dateStr.match(/(\d{2})\.(\d{2})\.(\d{4}),\s*(\d{2}):(\d{2})/);
   if (!m) return null;
   const [, day, month, year, hour, minute] = m;
@@ -79,20 +85,22 @@ function parseGermanDate(dateStr: string): Date | null {
 
 /**
  * Extract the oldest and newest message timestamps from a chat Markdown file.
+ * Matches both ISO 8601 and legacy German-locale timestamps in brackets.
  */
 async function extractDateRange(
   filePath: string
 ): Promise<{ oldest: Date; newest: Date; count: number } | null> {
   const content = await readFile(filePath, "utf-8");
 
-  const timestampRegex = /\[(\d{2}\.\d{2}\.\d{4},\s*\d{2}:\d{2})\]/g;
+  // Match ISO timestamps [2025-06-15T10:30:00Z] or legacy German [15.06.2025, 10:30]
+  const timestampRegex = /\[(\d{4}-\d{2}-\d{2}T[^\]]+|\d{2}\.\d{2}\.\d{4},\s*\d{2}:\d{2})\]/g;
   let oldest: Date | null = null;
   let newest: Date | null = null;
   let count = 0;
 
   let match;
   while ((match = timestampRegex.exec(content)) !== null) {
-    const date = parseGermanDate(match[1]);
+    const date = parseTimestamp(match[1]);
     if (!date || isNaN(date.getTime())) continue;
     count++;
     if (!oldest || date < oldest) oldest = date;
@@ -187,7 +195,7 @@ export async function analyzeRetention(
   let explanation: string;
 
   if (oldestCluster.length >= 3) {
-    const clusterDate = oldestCluster[0].oldest.toLocaleDateString("de-DE", {
+    const clusterDate = oldestCluster[0].oldest.toLocaleDateString(undefined, {
       year: "numeric",
       month: "long",
       day: "numeric",
@@ -233,7 +241,7 @@ export function formatRetentionSummary(analysis: VisibilityAnalysis): string {
   lines.push("  " + "-".repeat(44));
   lines.push(`  Chats exported:     ${analysis.chatsWithDates}/${analysis.chatsAnalyzed}`);
   lines.push(
-    `  Oldest message:     ${analysis.oldestMessage.date.toLocaleDateString("de-DE")} (${analysis.maxOldestAgeDays} days ago)`
+    `  Oldest message:     ${analysis.oldestMessage.date.toLocaleDateString(undefined)} (${analysis.maxOldestAgeDays} days ago)`
   );
   lines.push(`    in chat:          ${analysis.oldestMessage.chat}`);
   lines.push(`  Median oldest age:  ${analysis.medianOldestAgeDays} days`);
@@ -246,7 +254,7 @@ export function formatRetentionSummary(analysis: VisibilityAnalysis): string {
   lines.push("  Top 5 oldest chats:");
   for (const chat of analysis.chatRanges.slice(0, 5)) {
     lines.push(
-      `    ${chat.ageDays}d  ${chat.oldest.toLocaleDateString("de-DE")}  ${chat.name.slice(0, 50)}`
+      `    ${chat.ageDays}d  ${chat.oldest.toLocaleDateString(undefined)}  ${chat.name.slice(0, 50)}`
     );
   }
 

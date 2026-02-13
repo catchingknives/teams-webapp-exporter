@@ -102,16 +102,25 @@ Each chat produces a Markdown file named after the chat (sanitized). Messages ar
 ```markdown
 # Chat Name
 
-Exported: 13.02.2026, 15:00
+Exported: 2026-02-13T15:00:00.000Z
 
 ## Thursday, 13 February 2026
 
-**Alice** [13.02.2026, 09:15]:
+**Alice** [2026-02-13T09:15:00Z]:
 Good morning! Here's the update...
 
-**Bob** [13.02.2026, 09:20]:
+**Bob** [2026-02-13T09:20:00Z]:
 Thanks, looks good.
 ```
+
+## Testing & Linting
+
+```bash
+npm test          # Run all tests (Vitest)
+npm run lint      # Run ESLint
+```
+
+53 tests across 4 modules: message extraction, Markdown conversion, retention analysis, and Graph API chat discovery. Tests use temp directories for file I/O and mock `fetch` for API calls — no network or browser needed.
 
 ## License
 

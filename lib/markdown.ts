@@ -51,25 +51,20 @@ function htmlToText(html: string): string {
 }
 
 /**
- * Format a timestamp for display.
+ * Format a timestamp for display in brackets.
+ * Uses ISO 8601 so retention analysis can parse it regardless of locale.
  */
 function formatTimestamp(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleString("de-DE", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return iso;
 }
 
 /**
  * Format a date for section headers.
+ * Uses the system locale for human-readable display.
  */
 function formatDate(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleDateString("de-DE", {
+  return d.toLocaleDateString(undefined, {
     weekday: "long",
     year: "numeric",
     month: "long",
@@ -192,7 +187,7 @@ export async function saveChat(
     const appended =
       cleaned.trimEnd() +
       "\n\n---\n\n" +
-      `### Export appended: ${new Date().toLocaleString("de-DE")}\n\n` +
+      `### Export appended: ${new Date().toISOString()}\n\n` +
       markdown +
       "\n" +
       metadata +
@@ -200,7 +195,7 @@ export async function saveChat(
     await writeFile(filePath, appended, "utf-8");
   } else {
     // Fresh export
-    const header = `# ${chatName}\n\nExported: ${new Date().toLocaleString("de-DE")}\n\n`;
+    const header = `# ${chatName}\n\nExported: ${new Date().toISOString()}\n\n`;
     const content = header + markdown + "\n" + metadata + "\n";
     await writeFile(filePath, content, "utf-8");
   }
