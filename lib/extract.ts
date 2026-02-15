@@ -169,8 +169,18 @@ export function getExtractionScript(days: number, sinceTimestamp?: string): stri
     var cutoffDate = ${days} > 0 ? new Date(Date.now() - ${days} * 86400000) : null;
     var sinceDate = ${sinceTimestamp ? `new Date("${sinceTimestamp}")` : 'null'};
 
-    var collected = [];
-    var collect = function() { collected.push.apply(collected, Array.from(list.children)); };
+    var seenIds = new Map();
+    var collect = function() {
+      var children = Array.from(list.children);
+      for (var j = 0; j < children.length; j++) {
+        var el = children[j];
+        var mb = el.querySelector('[id^="message-body-"]');
+        if (mb && !el.querySelector('[aria-label="Animated GIF"]')) {
+          var mid = parseInt(mb.id.replace('message-body-', ''), 10);
+          if (!seenIds.has(mid)) seenIds.set(mid, el);
+        }
+      }
+    };
     collect();
 
     if (needsScroll) {
@@ -197,9 +207,10 @@ export function getExtractionScript(days: number, sinceTimestamp?: string): stri
           await sleep(1500);
           collect();
 
+          var snapshot = Array.from(seenIds.values());
           var effectiveCutoff = cutoffDate || sinceDate;
           if (effectiveCutoff) {
-            var oldest = getOldestTimestamp(collected);
+            var oldest = getOldestTimestamp(snapshot);
             if (oldest && oldest <= effectiveCutoff) {
               var reason = sinceDate && !cutoffDate ? 'last-exported timestamp' : 'cutoff date';
               console.log('[extract] Hit ' + reason + ' after ' + scrollIter + ' scrolls');
@@ -207,7 +218,7 @@ export function getExtractionScript(days: number, sinceTimestamp?: string): stri
             }
           }
 
-          var currentOldest = getOldestTimestamp(collected);
+          var currentOldest = getOldestTimestamp(snapshot);
           var changed = !prevOldest || !currentOldest
             || currentOldest.getTime() !== prevOldest.getTime();
           if (!changed) {
@@ -229,7 +240,7 @@ export function getExtractionScript(days: number, sinceTimestamp?: string): stri
       }
     }
 
-    var nodes = dedupAndSort(collected, 'extract');
+    var nodes = dedupAndSort(Array.from(seenIds.values()), 'extract');
 
     if (cutoffDate) {
       nodes = nodes.filter(function(n) {
@@ -261,8 +272,18 @@ export function getScrollDownExtractionScript(): string {
       return { messages: [], error: 'No chat pane found. Make sure a chat is open in Teams.' };
     }
 
-    var collected = [];
-    var collect = function() { collected.push.apply(collected, Array.from(list.children)); };
+    var seenIds = new Map();
+    var collect = function() {
+      var children = Array.from(list.children);
+      for (var j = 0; j < children.length; j++) {
+        var el = children[j];
+        var mb = el.querySelector('[id^="message-body-"]');
+        if (mb && !el.querySelector('[aria-label="Animated GIF"]')) {
+          var mid = parseInt(mb.id.replace('message-body-', ''), 10);
+          if (!seenIds.has(mid)) seenIds.set(mid, el);
+        }
+      }
+    };
     collect();
 
     var scrollContainer = findScrollContainer(list);
@@ -282,7 +303,7 @@ export function getScrollDownExtractionScript(): string {
         await sleep(2000);
         collect();
 
-        var currentCount = dedupAndSort(collected).length;
+        var currentCount = seenIds.size;
 
         if (step % 10 === 0) {
           console.log('[scroll-down] step ' + step + ', unique messages: ' + currentCount);
@@ -312,7 +333,7 @@ export function getScrollDownExtractionScript(): string {
       obs.disconnect();
     }
 
-    var nodes = dedupAndSort(collected, 'scroll-down');
+    var nodes = dedupAndSort(Array.from(seenIds.values()), 'scroll-down');
 
     if (nodes.length === 0) {
       return { messages: [], error: 'No messages could be extracted.' };
