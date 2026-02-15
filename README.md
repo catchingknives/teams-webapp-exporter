@@ -22,7 +22,9 @@ Based on [microsoft-teams-chat-extractor](https://github.com/ingo/microsoft-team
 
 ### Launch Chrome for debugging
 
-Chrome must be started with three flags:
+Chrome must be started with three flags. Pick the command for your OS:
+
+**macOS:**
 
 ```bash
 /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
@@ -31,9 +33,27 @@ Chrome must be started with three flags:
   --user-data-dir="$HOME/Library/Application Support/Google/Chrome-Debug" &
 ```
 
+**Linux:**
+
+```bash
+google-chrome \
+  --remote-debugging-port=9222 \
+  --remote-allow-origins='*' \
+  --user-data-dir="$HOME/.config/google-chrome-debug" &
+```
+
+**Windows (PowerShell):**
+
+```powershell
+& "C:\Program Files\Google\Chrome\Application\chrome.exe" `
+  --remote-debugging-port=9222 `
+  --remote-allow-origins=* `
+  --user-data-dir="$env:LOCALAPPDATA\Google\Chrome-Debug"
+```
+
 Then navigate to https://teams.microsoft.com and sign in.
 
-> **Note:** `--user-data-dir` must point to a separate profile directory — Chrome refuses to enable DevTools on the default profile. The `--remote-allow-origins='*'` flag must be quoted in zsh.
+> **Note:** `--user-data-dir` must point to a separate profile directory — Chrome refuses to enable DevTools on the default profile. On macOS/zsh, the `--remote-allow-origins='*'` flag must be quoted.
 
 ## Installation
 
@@ -62,6 +82,7 @@ npx tsx export-all.ts [options]
 | `--scroll-down` | `false` | Scroll down from current position instead of up |
 | `--region <r>` | `emea` | Teams chatsvc API region (`emea`, `amer`, `apac`) |
 | `--user <name>` | auto-detect | Your display name (for resolving 1:1 chat names) |
+| `--resume` | `false` | Resume from last checkpoint if interrupted |
 
 ### Examples
 
