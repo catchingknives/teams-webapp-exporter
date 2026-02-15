@@ -10,7 +10,7 @@ export interface ExtractedMessage {
   id: number;
   author: string;
   timestamp: string; // ISO 8601
-  contentHtml: string;
+  content: string;
 }
 
 export interface ExtractionResult {
@@ -135,7 +135,7 @@ const HELPERS_EXTRACT = `
             id: msgId,
             author: authorEl.innerText.trim(),
             timestamp: timeEl.getAttribute('datetime'),
-            contentHtml: bodyEl.innerText
+            content: bodyEl.innerText
           });
         } catch(e) { /* skip malformed message */ }
         if (label && i > 0 && i % 500 === 0) {
