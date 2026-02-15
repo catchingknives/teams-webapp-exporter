@@ -21,7 +21,7 @@ function msg(
     id: overrides.id ?? 1,
     author: overrides.author ?? "Alice",
     timestamp: overrides.timestamp ?? "2025-06-15T10:30:00Z",
-    contentHtml: overrides.contentHtml ?? "Hello",
+    content: overrides.content ?? "Hello",
   };
 }
 
@@ -31,13 +31,13 @@ function msg(
 
 describe("htmlToText (via messagesToMarkdown)", () => {
   it("converts <br> to newline", () => {
-    const md = messagesToMarkdown([msg({ contentHtml: "line1<br>line2" })]);
+    const md = messagesToMarkdown([msg({ content: "line1<br>line2" })]);
     expect(md).toContain("line1\nline2");
   });
 
   it("converts <b> and <strong> to bold", () => {
     const md = messagesToMarkdown([
-      msg({ contentHtml: "<b>bold</b> and <strong>strong</strong>" }),
+      msg({ content: "<b>bold</b> and <strong>strong</strong>" }),
     ]);
     expect(md).toContain("**bold**");
     expect(md).toContain("**strong**");
@@ -45,7 +45,7 @@ describe("htmlToText (via messagesToMarkdown)", () => {
 
   it("converts <i> and <em> to italic", () => {
     const md = messagesToMarkdown([
-      msg({ contentHtml: "<i>italic</i> and <em>emph</em>" }),
+      msg({ content: "<i>italic</i> and <em>emph</em>" }),
     ]);
     expect(md).toContain("_italic_");
     expect(md).toContain("_emph_");
@@ -53,7 +53,7 @@ describe("htmlToText (via messagesToMarkdown)", () => {
 
   it("converts <code> to inline code", () => {
     const md = messagesToMarkdown([
-      msg({ contentHtml: "use <code>npm test</code>" }),
+      msg({ content: "use <code>npm test</code>" }),
     ]);
     expect(md).toContain("`npm test`");
   });
@@ -61,7 +61,7 @@ describe("htmlToText (via messagesToMarkdown)", () => {
   it("converts links to markdown links", () => {
     const md = messagesToMarkdown([
       msg({
-        contentHtml: '<a href="https://example.com">click here</a>',
+        content: '<a href="https://example.com">click here</a>',
       }),
     ]);
     expect(md).toContain("[click here](https://example.com)");
@@ -69,7 +69,7 @@ describe("htmlToText (via messagesToMarkdown)", () => {
 
   it("converts blockquotes", () => {
     const md = messagesToMarkdown([
-      msg({ contentHtml: "<blockquote>quoted text</blockquote>" }),
+      msg({ content: "<blockquote>quoted text</blockquote>" }),
     ]);
     expect(md).toContain("> quoted text");
   });
@@ -77,7 +77,7 @@ describe("htmlToText (via messagesToMarkdown)", () => {
   it("decodes HTML entities", () => {
     const md = messagesToMarkdown([
       msg({
-        contentHtml: "&amp; &lt; &gt; &quot; &#39; &nbsp;",
+        content: "&amp; &lt; &gt; &quot; &#39; &nbsp;",
       }),
     ]);
     expect(md).toContain("& < > \" '");
@@ -85,7 +85,7 @@ describe("htmlToText (via messagesToMarkdown)", () => {
 
   it("strips unknown tags", () => {
     const md = messagesToMarkdown([
-      msg({ contentHtml: "<span class='x'>plain</span>" }),
+      msg({ content: "<span class='x'>plain</span>" }),
     ]);
     expect(md).toContain("plain");
     expect(md).not.toContain("<span");
@@ -115,8 +115,8 @@ describe("messagesToMarkdown", () => {
 
   it("groups consecutive messages by same author (time-only for subsequent)", () => {
     const md = messagesToMarkdown([
-      msg({ id: 1, timestamp: "2025-06-15T10:30:00Z", contentHtml: "First" }),
-      msg({ id: 2, timestamp: "2025-06-15T10:31:00Z", contentHtml: "Second" }),
+      msg({ id: 1, timestamp: "2025-06-15T10:30:00Z", content: "First" }),
+      msg({ id: 2, timestamp: "2025-06-15T10:31:00Z", content: "Second" }),
     ]);
     // First message gets bold author, second gets italic time-only
     const boldCount = (md.match(/\*\*Alice\*\*/g) || []).length;
@@ -231,7 +231,7 @@ describe("saveChat", () => {
   });
 
   it("creates a fresh export file with header and metadata", async () => {
-    const messages = [msg({ contentHtml: "Test message" })];
+    const messages = [msg({ content: "Test message" })];
     const count = await saveChat("Test Chat", messages, tmpDir);
 
     expect(count).toBe(1);
@@ -247,7 +247,7 @@ describe("saveChat", () => {
       msg({
         id: 1,
         timestamp: "2025-06-15T10:00:00.000Z",
-        contentHtml: "First",
+        content: "First",
       }),
     ];
     await saveChat("Append Test", messages1, tmpDir);
@@ -257,12 +257,12 @@ describe("saveChat", () => {
       msg({
         id: 1,
         timestamp: "2025-06-15T10:00:00.000Z",
-        contentHtml: "First",
+        content: "First",
       }),
       msg({
         id: 2,
         timestamp: "2025-06-15T11:00:00.000Z",
-        contentHtml: "Second",
+        content: "Second",
       }),
     ];
     const count = await saveChat("Append Test", messages2, tmpDir);
@@ -276,7 +276,7 @@ describe("saveChat", () => {
 
   it("returns 0 when no new messages", async () => {
     const messages = [
-      msg({ timestamp: "2025-06-15T10:00:00.000Z", contentHtml: "Only" }),
+      msg({ timestamp: "2025-06-15T10:00:00.000Z", content: "Only" }),
     ];
     await saveChat("No New", messages, tmpDir);
     const count = await saveChat("No New", messages, tmpDir);

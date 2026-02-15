@@ -84,7 +84,7 @@ export function messagesToMarkdown(messages: ExtractedMessage[]): string {
 
   for (const msg of messages) {
     const dateStr = new Date(msg.timestamp).toDateString();
-    const content = htmlToText(msg.contentHtml);
+    const content = htmlToText(msg.content);
 
     // Date separator
     if (dateStr !== lastDateStr) {

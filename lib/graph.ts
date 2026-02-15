@@ -75,19 +75,26 @@ export async function getToken(page: Page): Promise<string> {
  * @param region chatsvc region (e.g. "emea", "amer", "apac")
  */
 export async function fetchAllChats(token: string, region: string): Promise<ChatEntry[]> {
-  const url = `https://teams.microsoft.com/api/chatsvc/${region}/v1/users/ME/conversations?view=mychats&pageSize=500`;
+  const baseUrl = `https://teams.microsoft.com/api/chatsvc/${region}/v1/users/ME/conversations?view=mychats&pageSize=500`;
+  const conversations: any[] = [];
 
-  const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
+  let url: string | null = baseUrl;
+  while (url) {
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`chatsvc API error ${response.status}: ${text.slice(0, 200)}`);
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`chatsvc API error ${response.status}: ${text.slice(0, 200)}`);
+    }
+
+    const data = await response.json();
+    conversations.push(...(data.conversations || []));
+
+    // Follow pagination link if present
+    url = data._metadata?.backwardLink || null;
   }
-
-  const data = await response.json();
-  const conversations = data.conversations || [];
 
   // Filter to exportable conversation types
   const exportableTypes = new Set(["chat", "meeting", "topic"]);
