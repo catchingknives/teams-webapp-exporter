@@ -2,7 +2,7 @@
  * Browser-side extraction logic for Teams chat messages.
  * Adapted from payload.js — runs inside page.evaluate() as a string.
  *
- * IMPORTANT: This returns a plain JS string (no TS, no const/let, no arrow functions)
+ * IMPORTANT: The helper strings use plain JS (no TS, no const/let, no arrow functions)
  * because tsx/esbuild injects __name helpers that break in browser evaluate context.
  */
 
@@ -18,12 +18,10 @@ export interface ExtractionResult {
   error?: string;
 }
 
-/**
- * Returns a JS string IIFE to run inside page.evaluate().
- * days: -1 = no scroll, 0 = all history, >0 = N days back.
- */
-export function getExtractionScript(days: number, sinceTimestamp?: string): string {
-  return `(async function() {
+// ── Shared browser-side helpers (plain JS strings) ──────────────────
+
+/** sleep, findScrollContainer, getOldestTimestamp */
+const HELPERS_CORE = `
     var sleep = function(ms) { return new Promise(function(r) { setTimeout(r, ms); }); };
 
     var findScrollContainer = function(el) {
@@ -58,6 +56,109 @@ export function getExtractionScript(days: number, sinceTimestamp?: string): stri
       }
       return oldest;
     };
+`;
+
+/** Dedup collected nodes by message-body ID, filter GIFs, sort chronologically */
+const HELPERS_DEDUP = `
+    var dedupAndSort = function(collected, label) {
+      if (label) console.log('[' + label + '] Deduplicating ' + collected.length + ' collected nodes...');
+      var map = new Map();
+      collected.forEach(function(n) {
+        var msg = n.querySelector('[id^="message-body-"]');
+        if (msg && !n.querySelector('[aria-label="Animated GIF"]')) {
+          var id = parseInt(msg.id.replace('message-body-', ''), 10);
+          if (!map.has(id)) map.set(id, n);
+        }
+      });
+      var entries = Array.from(map.entries());
+      entries.sort(function(a, b) { return a[0] - b[0]; });
+      var nodes = entries.map(function(entry) { return entry[1]; });
+      if (label) console.log('[' + label + '] ' + nodes.length + ' unique messages after dedup');
+      return nodes;
+    };
+`;
+
+/** DOM cleanup + structured message extraction from sorted nodes */
+const HELPERS_EXTRACT = `
+    var replaceEmojiImages = function(node) {
+      node.querySelectorAll('img[itemtype*="Emoji"]').forEach(function(img) {
+        var span = document.createElement('span');
+        span.innerText = img.alt || '';
+        img.parentNode.replaceChild(span, img);
+      });
+    };
+
+    var replaceMentions = function(node) {
+      try {
+        node.querySelectorAll('div[aria-label*="Mention"]').forEach(function(div) {
+          var span = document.createElement('span');
+          while (div.firstChild) span.appendChild(div.firstChild);
+          span.style.fontWeight = 'bold';
+          div.parentNode.insertBefore(span, div);
+          div.parentNode.removeChild(div);
+        });
+      } catch(e) {}
+    };
+
+    var replaceQuotedReplies = function(node) {
+      try {
+        node.querySelectorAll('div[data-track-module-name="messageQuotedReply"]').forEach(function(div) {
+          var blockquote = document.createElement('blockquote');
+          while (div.firstChild) blockquote.appendChild(div.firstChild);
+          div.parentNode.insertBefore(blockquote, div);
+          div.parentNode.removeChild(div);
+        });
+      } catch(e) {}
+    };
+
+    var extractMessages = function(nodes, label) {
+      if (label) console.log('[' + label + '] Extracting text from ' + nodes.length + ' messages...');
+      var messages = [];
+      for (var i = 0; i < nodes.length; i++) {
+        try {
+          var n = nodes[i];
+          var clone = n.cloneNode(true);
+          replaceEmojiImages(clone);
+          replaceMentions(clone);
+          replaceQuotedReplies(clone);
+
+          var authorEl = clone.querySelector('[data-tid="message-author-name"]');
+          var timeEl = clone.querySelector('[id^="timestamp-"]');
+          var bodyEl = clone.querySelector('[id^="message-body-"] [id^="content-"]');
+
+          if (!authorEl || !timeEl || !bodyEl) continue;
+
+          var msgBody = clone.querySelector('[id^="message-body-"]');
+          var msgId = msgBody ? parseInt(msgBody.id.replace('message-body-', ''), 10) : 0;
+
+          messages.push({
+            id: msgId,
+            author: authorEl.innerText.trim(),
+            timestamp: timeEl.getAttribute('datetime'),
+            contentHtml: bodyEl.innerText
+          });
+        } catch(e) { /* skip malformed message */ }
+        if (label && i > 0 && i % 500 === 0) {
+          console.log('[' + label + '] Processed ' + i + '/' + nodes.length + ' messages...');
+        }
+      }
+      if (label) console.log('[' + label + '] Done — ' + messages.length + ' messages extracted');
+      return messages;
+    };
+`;
+
+/** All shared helpers combined */
+const HELPERS = HELPERS_CORE + HELPERS_DEDUP + HELPERS_EXTRACT;
+
+// ── Script generators ───────────────────────────────────────────────
+
+/**
+ * Returns a JS string IIFE that scrolls UP to load history.
+ * days: -1 = no scroll, 0 = all history, >0 = N days back.
+ */
+export function getExtractionScript(days: number, sinceTimestamp?: string): string {
+  return `(async function() {
+    ${HELPERS}
 
     var list = document.getElementById('chat-pane-list');
     if (!list) {
@@ -75,8 +176,6 @@ export function getExtractionScript(days: number, sinceTimestamp?: string): stri
     if (needsScroll) {
       var scrollContainer = findScrollContainer(list);
       if (scrollContainer) {
-        // Reset: scroll to bottom first to ensure fresh state,
-        // then scroll up aggressively to load history.
         scrollContainer.scrollTop = scrollContainer.scrollHeight;
         await sleep(2000);
         collect();
@@ -90,7 +189,6 @@ export function getExtractionScript(days: number, sinceTimestamp?: string): stri
 
         while (true) {
           scrollIter++;
-          // Jump straight to top — this forces Teams to load content at position 0
           scrollContainer.scrollTop = 0;
           list.dispatchEvent(new KeyboardEvent('keydown', {
             key: 'Home', code: 'Home', bubbles: true, cancelable: true
@@ -99,7 +197,6 @@ export function getExtractionScript(days: number, sinceTimestamp?: string): stri
           await sleep(1500);
           collect();
 
-          // Stop scrolling if we've reached already-exported messages
           var effectiveCutoff = cutoffDate || sinceDate;
           if (effectiveCutoff) {
             var oldest = getOldestTimestamp(collected);
@@ -132,23 +229,8 @@ export function getExtractionScript(days: number, sinceTimestamp?: string): stri
       }
     }
 
-    // Deduplicate by message-body ID, filter GIFs, sort chronologically
-    console.log('[extract] Deduplicating ' + collected.length + ' collected nodes...');
-    var map = new Map();
-    collected.forEach(function(n) {
-      var msg = n.querySelector('[id^="message-body-"]');
-      if (msg && !n.querySelector('[aria-label="Animated GIF"]')) {
-        var id = parseInt(msg.id.replace('message-body-', ''), 10);
-        if (!map.has(id)) map.set(id, n);
-      }
-    });
+    var nodes = dedupAndSort(collected, 'extract');
 
-    var entries = Array.from(map.entries());
-    entries.sort(function(a, b) { return a[0] - b[0]; });
-    var nodes = entries.map(function(entry) { return entry[1]; });
-    console.log('[extract] ' + nodes.length + ' unique messages after dedup');
-
-    // Trim to date range
     if (cutoffDate) {
       nodes = nodes.filter(function(n) {
         var timeEl = n.querySelector('[id^="timestamp-"]');
@@ -162,105 +244,17 @@ export function getExtractionScript(days: number, sinceTimestamp?: string): stri
       return { messages: [], error: 'No messages could be extracted.' };
     }
 
-    var replaceEmojiImages = function(node) {
-      node.querySelectorAll('img[itemtype*="Emoji"]').forEach(function(img) {
-        var span = document.createElement('span');
-        span.innerText = img.alt || '';
-        img.parentNode.replaceChild(span, img);
-      });
-    };
-
-    var replaceMentions = function(node) {
-      try {
-        node.querySelectorAll('div[aria-label*="Mention"]').forEach(function(div) {
-          var span = document.createElement('span');
-          // Move children instead of innerHTML to avoid TrustedHTML
-          while (div.firstChild) span.appendChild(div.firstChild);
-          span.style.fontWeight = 'bold';
-          div.parentNode.insertBefore(span, div);
-          div.parentNode.removeChild(div);
-        });
-      } catch(e) {}
-    };
-
-    var replaceQuotedReplies = function(node) {
-      try {
-        node.querySelectorAll('div[data-track-module-name="messageQuotedReply"]').forEach(function(div) {
-          var blockquote = document.createElement('blockquote');
-          // Move children instead of innerHTML to avoid TrustedHTML
-          while (div.firstChild) blockquote.appendChild(div.firstChild);
-          div.parentNode.insertBefore(blockquote, div);
-          div.parentNode.removeChild(div);
-        });
-      } catch(e) {}
-    };
-
-    // Extract structured data
-    console.log('[extract] Extracting text from ' + nodes.length + ' messages...');
-    var messages = [];
-    for (var i = 0; i < nodes.length; i++) {
-      try {
-        var n = nodes[i];
-        var clone = n.cloneNode(true);
-        replaceEmojiImages(clone);
-        replaceMentions(clone);
-        replaceQuotedReplies(clone);
-
-        var authorEl = clone.querySelector('[data-tid="message-author-name"]');
-        var timeEl = clone.querySelector('[id^="timestamp-"]');
-        var bodyEl = clone.querySelector('[id^="message-body-"] [id^="content-"]');
-
-        if (!authorEl || !timeEl || !bodyEl) continue;
-
-        var msgBody = clone.querySelector('[id^="message-body-"]');
-        var msgId = msgBody ? parseInt(msgBody.id.replace('message-body-', ''), 10) : 0;
-
-        messages.push({
-          id: msgId,
-          author: authorEl.innerText.trim(),
-          timestamp: timeEl.getAttribute('datetime'),
-          contentHtml: bodyEl.innerText
-        });
-      } catch(e) { /* skip malformed message */ }
-      if (i > 0 && i % 500 === 0) {
-        console.log('[extract] Processed ' + i + '/' + nodes.length + ' messages...');
-      }
-    }
-    console.log('[extract] Done — ' + messages.length + ' messages extracted');
-
-    return { messages: messages };
+    return { messages: extractMessages(nodes, 'extract') };
   })()`;
 }
 
 /**
  * Returns a JS string IIFE that scrolls DOWN from the current position.
- * Use when the user has manually scrolled to the top of a chat —
- * this captures messages as it scrolls down through the virtual list.
+ * Use when the user has manually scrolled to the top of a chat.
  */
 export function getScrollDownExtractionScript(): string {
   return `(async function() {
-    var sleep = function(ms) { return new Promise(function(r) { setTimeout(r, ms); }); };
-
-    var findScrollContainer = function(el) {
-      var current = el;
-      while (current && current !== document.documentElement) {
-        var style = getComputedStyle(current);
-        var ov = style.overflowY;
-        if ((ov === 'auto' || ov === 'scroll') && current.scrollHeight > current.clientHeight) {
-          return current;
-        }
-        current = current.parentElement;
-      }
-      current = el;
-      while (current && current !== document.documentElement) {
-        if (current.scrollTop > 0 && current.scrollHeight > current.clientHeight) {
-          return current;
-        }
-        current = current.parentElement;
-      }
-      if (el.scrollHeight > el.clientHeight) return el;
-      return null;
-    };
+    ${HELPERS}
 
     var list = document.getElementById('chat-pane-list');
     if (!list) {
@@ -281,7 +275,6 @@ export function getScrollDownExtractionScript(): string {
 
       for (var step = 0; step < 5000; step++) {
         scrollContainer.scrollTop += Math.floor(scrollContainer.clientHeight * 0.6);
-        // Also dispatch End key to nudge Teams to load more content
         scrollContainer.dispatchEvent(new KeyboardEvent('keydown', {
           key: 'PageDown', code: 'PageDown', bubbles: true, cancelable: true
         }));
@@ -289,25 +282,14 @@ export function getScrollDownExtractionScript(): string {
         await sleep(2000);
         collect();
 
-        // Deduplicate to count unique messages so far
-        var tempMap = new Map();
-        collected.forEach(function(n) {
-          var msg = n.querySelector('[id^="message-body-"]');
-          if (msg) {
-            var id = parseInt(msg.id.replace('message-body-', ''), 10);
-            if (!tempMap.has(id)) tempMap.set(id, true);
-          }
-        });
-        var currentCount = tempMap.size;
+        var currentCount = dedupAndSort(collected).length;
 
-        // Log progress every 10 steps
         if (step % 10 === 0) {
           console.log('[scroll-down] step ' + step + ', unique messages: ' + currentCount);
         }
 
         if (currentCount === prevCount) {
           noChangeCount++;
-          // If stalled, try a bigger scroll jump to get past a gap
           if (noChangeCount === 4) {
             scrollContainer.scrollTop += scrollContainer.clientHeight * 2;
             await sleep(3000);
@@ -319,7 +301,6 @@ export function getScrollDownExtractionScript(): string {
         }
         prevCount = currentCount;
 
-        // Check if we've reached the bottom
         if (scrollContainer.scrollTop + scrollContainer.clientHeight >= scrollContainer.scrollHeight - 10) {
           await sleep(2000);
           collect();
@@ -331,82 +312,12 @@ export function getScrollDownExtractionScript(): string {
       obs.disconnect();
     }
 
-    // Deduplicate by message-body ID, filter GIFs, sort chronologically
-    var map = new Map();
-    collected.forEach(function(n) {
-      var msg = n.querySelector('[id^="message-body-"]');
-      if (msg && !n.querySelector('[aria-label="Animated GIF"]')) {
-        var id = parseInt(msg.id.replace('message-body-', ''), 10);
-        if (!map.has(id)) map.set(id, n);
-      }
-    });
-
-    var entries = Array.from(map.entries());
-    entries.sort(function(a, b) { return a[0] - b[0]; });
-    var nodes = entries.map(function(entry) { return entry[1]; });
+    var nodes = dedupAndSort(collected, 'scroll-down');
 
     if (nodes.length === 0) {
       return { messages: [], error: 'No messages could be extracted.' };
     }
 
-    var replaceEmojiImages = function(node) {
-      node.querySelectorAll('img[itemtype*="Emoji"]').forEach(function(img) {
-        var span = document.createElement('span');
-        span.innerText = img.alt || '';
-        img.parentNode.replaceChild(span, img);
-      });
-    };
-
-    var replaceMentions = function(node) {
-      try {
-        node.querySelectorAll('div[aria-label*="Mention"]').forEach(function(div) {
-          var span = document.createElement('span');
-          while (div.firstChild) span.appendChild(div.firstChild);
-          span.style.fontWeight = 'bold';
-          div.parentNode.insertBefore(span, div);
-          div.parentNode.removeChild(div);
-        });
-      } catch(e) {}
-    };
-
-    var replaceQuotedReplies = function(node) {
-      try {
-        node.querySelectorAll('div[data-track-module-name="messageQuotedReply"]').forEach(function(div) {
-          var blockquote = document.createElement('blockquote');
-          while (div.firstChild) blockquote.appendChild(div.firstChild);
-          div.parentNode.insertBefore(blockquote, div);
-          div.parentNode.removeChild(div);
-        });
-      } catch(e) {}
-    };
-
-    var messages = [];
-    for (var i = 0; i < nodes.length; i++) {
-      try {
-        var n = nodes[i];
-        var clone = n.cloneNode(true);
-        replaceEmojiImages(clone);
-        replaceMentions(clone);
-        replaceQuotedReplies(clone);
-
-        var authorEl = clone.querySelector('[data-tid="message-author-name"]');
-        var timeEl = clone.querySelector('[id^="timestamp-"]');
-        var bodyEl = clone.querySelector('[id^="message-body-"] [id^="content-"]');
-
-        if (!authorEl || !timeEl || !bodyEl) continue;
-
-        var msgBody = clone.querySelector('[id^="message-body-"]');
-        var msgId = msgBody ? parseInt(msgBody.id.replace('message-body-', ''), 10) : 0;
-
-        messages.push({
-          id: msgId,
-          author: authorEl.innerText.trim(),
-          timestamp: timeEl.getAttribute('datetime'),
-          contentHtml: bodyEl.innerText
-        });
-      } catch(e) {}
-    }
-
-    return { messages: messages };
+    return { messages: extractMessages(nodes, 'scroll-down') };
   })()`;
 }
