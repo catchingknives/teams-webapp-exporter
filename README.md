@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/catchingknives/teams-webapp-exporter/actions/workflows/ci.yml/badge.svg)](https://github.com/catchingknives/teams-webapp-exporter/actions/workflows/ci.yml)
 
-Bulk export Microsoft Teams chats to Markdown files via Playwright browser automation.
+Bulk export Microsoft Teams chats to Markdown files via Playwright browser automation - for when API access is not an option.
 
 Based on [microsoft-teams-chat-extractor](https://github.com/ingo/microsoft-teams-chat-extractor) by Ingo Muschenetz. Rewritten as a Playwright-based CLI for automated bulk export with incremental sync, quick-check optimization, and scroll cutoff.
 
