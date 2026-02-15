@@ -18,6 +18,7 @@
  *   --scroll-down    Scroll down from current position instead of up
  *   --region <r>     Teams chatsvc region (default: emea)
  *   --user <name>    Your display name (auto-detected if omitted)
+ *   --resume         Resume from last checkpoint if interrupted
  *
  * Prerequisites:
  *   Start Chrome with remote debugging:
@@ -32,6 +33,7 @@ import { parseArgs } from "util";
 import { getExtractionScript, getScrollDownExtractionScript, type ExtractionResult } from "./lib/extract";
 import { saveChat, sanitizeFilename, getLatestTimestamp } from "./lib/markdown";
 import { join } from "path";
+import { writeFileSync, readFileSync, unlinkSync, existsSync, mkdirSync } from "fs";
 import { analyzeRetention, formatRetentionSummary } from "./lib/retention";
 import { getToken, fetchAllChats } from "./lib/graph";
 
@@ -51,6 +53,7 @@ const { values: args } = parseArgs({
     "scroll-down": { type: "boolean", default: false },
     region: { type: "string", default: "emea" },
     user: { type: "string" },
+    resume: { type: "boolean", default: false },
   },
 });
 
@@ -62,6 +65,7 @@ const PORT = parseInt(args.port!, 10);
 const TIMEOUT_MS = parseInt(args.timeout!, 10) * 1000;
 const SCROLL_DOWN = args["scroll-down"]!;
 const REGION = args.region!;
+const RESUME = args.resume!;
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
@@ -75,6 +79,39 @@ function warn(msg: string) {
 
 async function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// ── Progress checkpoint ──────────────────────────────────────────────
+
+const PROGRESS_FILE = join(OUTPUT_DIR, ".export-progress.json");
+
+interface ExportProgress {
+  lastCompletedIndex: number;
+  chatCount: number;
+  startedAt: string;
+}
+
+function saveProgress(index: number, chatCount: number) {
+  mkdirSync(OUTPUT_DIR, { recursive: true });
+  const progress: ExportProgress = {
+    lastCompletedIndex: index,
+    chatCount,
+    startedAt: new Date().toISOString(),
+  };
+  writeFileSync(PROGRESS_FILE, JSON.stringify(progress, null, 2) + "\n");
+}
+
+function loadProgress(): ExportProgress | null {
+  if (!existsSync(PROGRESS_FILE)) return null;
+  try {
+    return JSON.parse(readFileSync(PROGRESS_FILE, "utf-8"));
+  } catch {
+    return null;
+  }
+}
+
+function clearProgress() {
+  try { unlinkSync(PROGRESS_FILE); } catch {}
 }
 
 // ── Auto-detect current user ──────────────────────────────────────────
@@ -687,6 +724,7 @@ async function main() {
   log(`Days:     ${DAYS === 0 ? "all history" : DAYS}`);
   log(`Scroll:   ${SCROLL_DOWN ? "DOWN (from current position)" : "UP (default)"}`);
   log(`Region:   ${REGION}`);
+  log(`Resume:   ${RESUME}`);
   log(`Dry run:  ${DRY_RUN}`);
   if (CHAT_FILTER) log(`Filter:   "${CHAT_FILTER}"`);
   log("");
@@ -760,7 +798,19 @@ async function main() {
   let failed = 0;
   const totalChats = chats.length;
 
-  for (let i = 0; i < totalChats; i++) {
+  // Resume from checkpoint if --resume flag is set
+  let startIndex = 0;
+  if (RESUME) {
+    const progress = loadProgress();
+    if (progress && progress.chatCount === totalChats) {
+      startIndex = progress.lastCompletedIndex + 1;
+      log(`Resuming from chat ${startIndex + 1}/${totalChats} (checkpoint: ${progress.startedAt})`);
+    } else if (progress) {
+      warn(`Progress file found but chat count changed (${progress.chatCount} → ${totalChats}). Starting from beginning.`);
+    }
+  }
+
+  for (let i = startIndex; i < totalChats; i++) {
     const chat = chats[i];
     const progress = `[${i + 1}/${totalChats}]`;
     log(`${progress} Exporting: ${chat.name}...`);
@@ -830,9 +880,15 @@ async function main() {
       exported++;
     }
 
+    // Checkpoint after each chat
+    saveProgress(i, totalChats);
+
     // Small delay between chats to avoid overwhelming Teams
     await sleep(1000);
   }
+
+  // Clear progress file on successful completion
+  clearProgress();
 
   // Summary
   log("");
