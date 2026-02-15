@@ -20,9 +20,19 @@ export interface ExtractionResult {
 
 // ── Shared browser-side helpers (plain JS strings) ──────────────────
 
-/** sleep, findScrollContainer, getOldestTimestamp */
+/** sleep, waitForChange, findScrollContainer, getOldestTimestamp */
 const HELPERS_CORE = `
     var sleep = function(ms) { return new Promise(function(r) { setTimeout(r, ms); }); };
+
+    var waitForChange = function(target, maxMs) {
+      return new Promise(function(resolve) {
+        var done = false;
+        var finish = function() { if (!done) { done = true; obs.disconnect(); resolve(); } };
+        var obs = new MutationObserver(function() { setTimeout(finish, 200); });
+        obs.observe(target, { childList: true, subtree: true });
+        setTimeout(finish, maxMs);
+      });
+    };
 
     var findScrollContainer = function(el) {
       var current = el;
@@ -187,7 +197,7 @@ export function getExtractionScript(days: number, sinceTimestamp?: string): stri
       var scrollContainer = findScrollContainer(list);
       if (scrollContainer) {
         scrollContainer.scrollTop = scrollContainer.scrollHeight;
-        await sleep(2000);
+        await waitForChange(list, 2000);
         collect();
 
         var obs = new MutationObserver(function() { collect(); });
@@ -204,7 +214,7 @@ export function getExtractionScript(days: number, sinceTimestamp?: string): stri
             key: 'Home', code: 'Home', bubbles: true, cancelable: true
           }));
 
-          await sleep(1500);
+          await waitForChange(list, 1500);
           collect();
 
           var snapshot = Array.from(seenIds.values());
@@ -300,7 +310,7 @@ export function getScrollDownExtractionScript(): string {
           key: 'PageDown', code: 'PageDown', bubbles: true, cancelable: true
         }));
 
-        await sleep(2000);
+        await waitForChange(list, 2000);
         collect();
 
         var currentCount = seenIds.size;
@@ -313,7 +323,7 @@ export function getScrollDownExtractionScript(): string {
           noChangeCount++;
           if (noChangeCount === 4) {
             scrollContainer.scrollTop += scrollContainer.clientHeight * 2;
-            await sleep(3000);
+            await waitForChange(list, 3000);
             collect();
           }
           if (noChangeCount >= 8) break;
@@ -323,7 +333,7 @@ export function getScrollDownExtractionScript(): string {
         prevCount = currentCount;
 
         if (scrollContainer.scrollTop + scrollContainer.clientHeight >= scrollContainer.scrollHeight - 10) {
-          await sleep(2000);
+          await waitForChange(list, 2000);
           collect();
           noChangeCount++;
           if (noChangeCount >= 5) break;
