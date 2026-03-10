@@ -33,7 +33,7 @@ import { parseArgs } from "util";
 import { getExtractionScript, getScrollDownExtractionScript, type ExtractionResult } from "./lib/extract";
 import { saveChat, sanitizeFilename, getLatestTimestamp } from "./lib/markdown";
 import { join } from "path";
-import { writeFileSync, readFileSync, unlinkSync, existsSync, mkdirSync } from "fs";
+import { writeFileSync, readFileSync, unlinkSync, existsSync, mkdirSync, appendFileSync } from "fs";
 import { analyzeRetention, formatRetentionSummary } from "./lib/retention";
 import { getToken, fetchAllChats } from "./lib/graph";
 
@@ -67,14 +67,31 @@ const SCROLL_DOWN = args["scroll-down"]!;
 const REGION = args.region!;
 const RESUME = args.resume!;
 
+// ── Log file ─────────────────────────────────────────────────────────
+
+const LOG_FILE = join(OUTPUT_DIR, ".export.log");
+
+function initLogFile() {
+  mkdirSync(OUTPUT_DIR, { recursive: true });
+  writeFileSync(LOG_FILE, `[teams-export] Started at ${new Date().toISOString()}\n`);
+}
+
+function writeLog(line: string) {
+  try { appendFileSync(LOG_FILE, line + "\n"); } catch {}
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────
 
 function log(msg: string) {
-  console.log(`[teams-export] ${msg}`);
+  const line = `[teams-export] ${msg}`;
+  console.log(line);
+  writeLog(line);
 }
 
 function warn(msg: string) {
-  console.warn(`[teams-export] ⚠ ${msg}`);
+  const line = `[teams-export] ⚠ ${msg}`;
+  console.warn(line);
+  writeLog(line);
 }
 
 async function sleep(ms: number) {
@@ -123,10 +140,23 @@ function clearProgress() {
  */
 async function detectCurrentUser(page: Page): Promise<string | null> {
   const name = await page.evaluate(`(function() {
-    // Strategy 1: me-control / profile button aria-label
+    // Strategy 1: MSAL account object in localStorage (most reliable)
+    try {
+      var accountKeys = localStorage.getItem('msal.account.keys');
+      if (accountKeys) {
+        var keys = JSON.parse(accountKeys);
+        if (keys.length) {
+          var account = JSON.parse(localStorage.getItem(keys[0]) || '{}');
+          if (account.name && account.name.length > 1) return account.name;
+        }
+      }
+    } catch (e) {}
+
+    // Strategy 2: me-control / profile button aria-label
     // e.g. aria-label="Profile, John Doe, Online"
     var selectors = [
       '[data-tid="me-control"]',
+      '[data-tid="me-control-avatar-trigger"]',
       '#me-control-button',
       'button[aria-label*="Profile"]',
       '[data-tid="app-bar-me-control"]',
@@ -135,7 +165,6 @@ async function detectCurrentUser(page: Page): Promise<string | null> {
       var el = document.querySelector(selectors[i]);
       if (!el) continue;
       var label = el.getAttribute('aria-label') || '';
-      // aria-label is typically "Profile, Display Name, Status"
       var parts = label.split(',');
       if (parts.length >= 2) {
         var name = parts[1].trim();
@@ -143,7 +172,7 @@ async function detectCurrentUser(page: Page): Promise<string | null> {
       }
     }
 
-    // Strategy 2: Profile card / display name element
+    // Strategy 3: Profile card / display name element
     var nameEl = document.querySelector('[data-tid="me-control-displayname"]');
     if (nameEl && nameEl.textContent) {
       var text = nameEl.textContent.trim();
@@ -718,6 +747,7 @@ async function canSkipChat(page: Page, chatName: string, outputDir: string): Pro
 // ── Main ──────────────────────────────────────────────────────────────
 
 async function main() {
+  initLogFile();
   log("MS Teams Chat Exporter");
   log("=".repeat(50));
   log(`Output:   ${OUTPUT_DIR}`);
