@@ -10,7 +10,7 @@
     "sbom": "npm sbom --sbom-format cyclonedx --omit=dev > sbom.cdx.json"
   },
   "dependencies": {
-    "playwright-core": "^1.50.0"
+    "playwright-core": "1.59.1"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",

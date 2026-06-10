@@ -195,7 +195,7 @@ async function connectToChrome(): Promise<{
 
   let browser;
   try {
-    browser = await chromium.connectOverCDP(`http://localhost:${PORT}`);
+    browser = await chromium.connectOverCDP(`http://127.0.0.1:${PORT}`);
   } catch (e: any) {
     console.error(`\nPlaywright error: ${e.message}\n`);
     console.error(
