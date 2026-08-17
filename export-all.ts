@@ -938,7 +938,12 @@ async function main() {
   log(formatRetentionSummary(retention));
 }
 
-main().catch((e) => {
-  console.error("Fatal error:", e.message);
-  process.exit(1);
-});
+main()
+  .then(() => {
+    // The CDP connection keeps the event loop alive; exit explicitly on success.
+    process.exit(0);
+  })
+  .catch((e) => {
+    console.error("Fatal error:", e.message);
+    process.exit(1);
+  });
