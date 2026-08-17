@@ -10,14 +10,14 @@
     "sbom": "npm sbom --sbom-format cyclonedx --omit=dev > sbom.cdx.json"
   },
   "dependencies": {
-    "playwright-core": "1.60.0"
+    "playwright-core": "1.62.1"
   },
   "devDependencies": {
-    "@types/node": "^25.9.2",
-    "eslint": "^9.39.4",
-    "tsx": "4.22.4",
+    "@types/node": "^25.9.5",
+    "eslint": "^9.39.5",
+    "tsx": "4.23.12",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.61.0",
-    "vitest": "^4.1.8"
+    "typescript-eslint": "^8.67.0",
+    "vitest": "^4.1.10"
   }
 }
