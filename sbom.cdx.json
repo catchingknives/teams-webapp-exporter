@@ -2,10 +2,10 @@
   "$schema": "http://cyclonedx.org/schema/bom-1.5.schema.json",
   "bomFormat": "CycloneDX",
   "specVersion": "1.5",
-  "serialNumber": "urn:uuid:1200991c-9c67-41d7-b6a8-fe95ab60b7c9",
+  "serialNumber": "urn:uuid:744763c4-14c9-47f8-b7e2-b4a7158ea711",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-08-17T18:30:01.819Z",
+    "timestamp": "2026-10-26T19:56:59.755Z",
     "lifecycles": [
       {
         "phase": "build"
@@ -15,13 +15,13 @@
       {
         "vendor": "npm",
         "name": "cli",
-        "version": "12.0.2"
+        "version": "11.20.0"
       }
     ],
     "component": {
       "bom-ref": "teams-chat-exporter@1.0.0",
       "type": "library",
-      "name": "teams-chat-exporter",
+      "name": "teams-webapp-exporter",
       "version": "1.0.0",
       "scope": "required",
       "description": "Export all MS Teams chats to Markdown via Playwright browser automation",
@@ -32,19 +32,19 @@
   },
   "components": [
     {
-      "bom-ref": "playwright-core@1.62.1",
+      "bom-ref": "playwright-core@1.64.1",
       "type": "library",
       "name": "playwright-core",
-      "version": "1.62.1",
+      "version": "1.64.1",
       "scope": "required",
       "author": "Microsoft Corporation",
       "description": "A high-level API to automate web browsers",
-      "purl": "pkg:npm/playwright-core@1.62.1",
+      "purl": "pkg:npm/playwright-core@1.64.1",
       "properties": [],
       "externalReferences": [
         {
           "type": "distribution",
-          "url": "https://registry.npmjs.org/playwright-core/-/playwright-core-1.62.1.tgz"
+          "url": "https://registry.npmjs.org/playwright-core/-/playwright-core-1.64.1.tgz"
         },
         {
           "type": "vcs",
@@ -58,7 +58,7 @@
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "c0f612c0404963d187ada2125eacaab71d276b42e93b75c45fb8cd0e19ed6dec7bb73512ee42e766c3a516bb85241e078bfae10cc8d71aa1dec0367af2761957"
+          "content": "042e2cf32e9211503a435ad2c594eda3c848d4a508df15e51c6660bc6a8fe08a8f748fdae855fd1f6f480cdcfbbcaa3d976d5be8b7d8a2c49c3cbe8cdf1c720d"
         }
       ],
       "licenses": [
@@ -74,11 +74,11 @@
     {
       "ref": "teams-chat-exporter@1.0.0",
       "dependsOn": [
-        "playwright-core@1.62.1"
+        "playwright-core@1.64.1"
       ]
     },
     {
-      "ref": "playwright-core@1.62.1",
+      "ref": "playwright-core@1.64.1",
       "dependsOn": []
     }
   ]
