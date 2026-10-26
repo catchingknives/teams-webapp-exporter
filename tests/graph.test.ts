@@ -137,6 +137,37 @@ describe("fetchAllChats", () => {
     expect(visible!.isHidden).toBe(false);
   });
 
+  it("flags empty conversations without dropping them or renumbering names", async () => {
+    globalThis.fetch = mockFetchResponse([
+      makeConversation({ id: "a", topic: "Project", lastimreceivedtime: "2025-06-15T03:00:00Z" }),
+      makeConversation({
+        id: "b",
+        topic: "Project",
+        lastimreceivedtime: "2025-06-15T02:00:00Z",
+        properties: { isemptyconversation: "True" },
+      }),
+      makeConversation({ id: "c", topic: "Project", lastimreceivedtime: "2025-06-15T01:00:00Z" }),
+    ]);
+
+    const result = await fetchAllChats("fake-token", "emea");
+    expect(result.map((r) => [r.chatId, r.name, r.isEmpty])).toEqual([
+      ["a", "Project (1)", false],
+      ["b", "Project (2)", true],
+      ["c", "Project (3)", false],
+    ]);
+  });
+
+  it("flags Teams channels", async () => {
+    globalThis.fetch = mockFetchResponse([
+      makeConversation({ id: "chan", threadType: "topic", threadProperties: { productThreadType: "TeamsStandardChannel" } }),
+      makeConversation({ id: "chat", threadType: "chat", threadProperties: { productThreadType: "Chat" } }),
+    ]);
+
+    const result = await fetchAllChats("fake-token", "emea");
+    expect(result.find((r) => r.chatId === "chan")!.isChannel).toBe(true);
+    expect(result.find((r) => r.chatId === "chat")!.isChannel).toBe(false);
+  });
+
   it("constructs web URLs from thread IDs", async () => {
     const threadId = "19:abc@thread.v2";
     globalThis.fetch = mockFetchResponse([

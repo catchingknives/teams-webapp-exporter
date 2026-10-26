@@ -21,6 +21,8 @@ export interface ChatEntry {
   webUrl: string;
   chatType: "chat" | "meeting" | "topic" | "space" | string;
   isHidden: boolean;
+  isEmpty: boolean;   // No messages ever posted (chatsvc isemptyconversation)
+  isChannel: boolean; // Teams channel, not a chat: the chat deep link cannot open it
 }
 
 /**
@@ -149,6 +151,11 @@ export async function fetchAllChats(token: string, region: string): Promise<Chat
     // Determine if hidden (meetings have explicit `hidden` threadProperty)
     const isHidden = conv.threadProperties?.hidden === "true" || false;
 
+    // Flags are set here but filtered in the export loop, so dropping these
+    // entries never shifts the deduplicated "(N)" names of other chats
+    const isEmpty = String(conv.properties?.isemptyconversation ?? "").toLowerCase() === "true";
+    const isChannel = /Channel$/.test(conv.threadProperties?.productThreadType || "");
+
     // Construct Teams deep link for navigation (fallback — sidebar click preferred)
     const webUrl = `https://teams.microsoft.com/l/chat/${encodeURIComponent(threadId)}/0`;
 
@@ -159,6 +166,8 @@ export async function fetchAllChats(token: string, region: string): Promise<Chat
       webUrl,
       chatType: threadType,
       isHidden,
+      isEmpty,
+      isChannel,
     };
   });
 

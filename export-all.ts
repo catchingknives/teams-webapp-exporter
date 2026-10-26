@@ -228,7 +228,8 @@ async function connectToChrome(): Promise<{
 
   for (const p of pages) {
     const url = p.url();
-    if (url.includes("teams.microsoft.com") || url.includes("teams.live.com")) {
+    // Teams now redirects teams.microsoft.com to teams.cloud.microsoft on load
+    if (url.includes("teams.microsoft.com") || url.includes("teams.cloud.microsoft") || url.includes("teams.live.com")) {
       teamsPage = p;
       break;
     }
@@ -267,6 +268,8 @@ interface ChatEntry {
   webUrl?: string;  // Deep link URL to open chat
   chatType?: string;
   isHidden?: boolean;
+  isEmpty?: boolean;   // No messages ever posted
+  isChannel?: boolean; // Teams channel: not reachable via the chat deep link
   value?: string;   // Legacy: data-fui-tree-item-value for sidebar fallback
 }
 
@@ -575,7 +578,7 @@ async function navigateToChat(page: Page, chat: ChatEntry): Promise<{ success: b
       // Tree item not found in currently visible items.
       // If we already know this chat isn't in the sidebar, skip the expensive scroll.
       if (chat.chatId && sidebarThreadIds.size > 0 && !sidebarThreadIds.has(chat.chatId)) {
-        return { success: false };
+        return openViaDeepLink(page, chat);
       }
 
       // Try scrolling the sidebar to load more items, then retry.
@@ -659,11 +662,40 @@ async function navigateToChat(page: Page, chat: ChatEntry): Promise<{ success: b
       }
     }
 
-    return { success: false };
+    return openViaDeepLink(page, chat);
   } catch (e: any) {
     warn(`Failed to navigate to chat "${chat.name}": ${e.message}`);
     return { success: false };
   }
+}
+
+/**
+ * Open a chat that is not in the sidebar via the web app's chat route.
+ *
+ * Uses /_#/l/chat/... rather than /l/chat/..., which lands on the
+ * "open in the desktop app?" launcher page. The page is first sent to
+ * about:blank so Teams always boots fresh: a hash-only change from the
+ * previous deep link would leave the old chat pane in the DOM, and its
+ * messages would be saved under this chat's name.
+ */
+async function openViaDeepLink(page: Page, chat: ChatEntry): Promise<{ success: boolean }> {
+  if (!chat.chatId || chat.isChannel) return { success: false };
+
+  const origin = new URL(page.url()).origin;
+  const teamsOrigin = origin.startsWith("https://teams.") ? origin : "https://teams.cloud.microsoft";
+
+  await page.goto("about:blank");
+  await page.goto(`${teamsOrigin}/_#/l/chat/${encodeURIComponent(chat.chatId)}/0`, {
+    waitUntil: "domcontentloaded",
+  });
+  const loaded = await page
+    .waitForSelector("#chat-pane-list", { timeout: 45000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!loaded) return { success: false };
+
+  await sleep(3000);
+  return { success: true };
 }
 
 // ── Extract messages from current chat ────────────────────────────────
@@ -825,6 +857,7 @@ async function main() {
   let exported = 0;
   let skipped = 0;
   let quickSkipped = 0;
+  let emptySkipped = 0;
   let failed = 0;
   const totalChats = chats.length;
 
@@ -845,10 +878,17 @@ async function main() {
     const progress = `[${i + 1}/${totalChats}]`;
     log(`${progress} Exporting: ${chat.name}...`);
 
+    if (chat.isEmpty) {
+      log(`${progress} "${chat.name}": empty conversation, skipping`);
+      emptySkipped++;
+      continue;
+    }
+
     // Navigate to the chat
     const navResult = await navigateToChat(page, chat);
     if (!navResult.success) {
-      warn(`${progress} Skipping "${chat.name}" — could not navigate`);
+      const reason = chat.isChannel ? "channel, not supported" : "could not navigate";
+      warn(`${progress} Skipping "${chat.name}" — ${reason}`);
       failed++;
       continue;
     }
@@ -927,6 +967,7 @@ async function main() {
   log(`  Exported: ${exported} chats with new messages`);
   log(`  Skipped:  ${skipped} chats (no new messages after extraction)`);
   log(`  Quick-skipped: ${quickSkipped} chats (unchanged, no extraction needed)`);
+  log(`  Empty:    ${emptySkipped} conversations (no messages, nothing to export)`);
   log(`  Failed:   ${failed} chats`);
   log(`  Output:   ${OUTPUT_DIR}`);
 
