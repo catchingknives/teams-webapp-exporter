@@ -80,7 +80,7 @@ export async function fetchAllChats(token: string, region: string): Promise<Chat
 
   let url: string | null = baseUrl;
   while (url) {
-    const response = await fetch(url, {
+    const response: Response = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
     });
 
@@ -89,7 +89,7 @@ export async function fetchAllChats(token: string, region: string): Promise<Chat
       throw new Error(`chatsvc API error ${response.status}: ${text.slice(0, 200)}`);
     }
 
-    const data = await response.json();
+    const data: any = await response.json();
     conversations.push(...(data.conversations || []));
 
     // Follow pagination link if present
