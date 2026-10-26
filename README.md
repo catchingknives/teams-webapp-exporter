@@ -141,6 +141,7 @@ Thanks, looks good.
 ```bash
 npm test          # Run all tests (Vitest)
 npm run lint      # Run ESLint
+npm run typecheck # Type-check with tsc
 ```
 
 53 tests across 4 modules: message extraction, Markdown conversion, retention analysis, and Graph API chat discovery. Tests use temp directories for file I/O and mock `fetch` for API calls — no network or browser needed.
