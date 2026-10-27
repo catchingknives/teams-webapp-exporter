@@ -920,147 +920,153 @@ async function main() {
     const chat = chats[i];
     const progress = `[${i + 1}/${totalChats}]`;
     log(`${progress} Exporting: ${chat.name}...`);
-
-    if (chat.isEmpty) {
-      log(`${progress} "${chat.name}": empty conversation, skipping`);
-      emptySkipped++;
-      continue;
-    }
-
-    // Navigate to the chat
-    const navResult = await navigateToChat(page, chat);
-    if (!navResult.success) {
-      const reason = chat.isChannel ? "channel, not supported" : "could not navigate";
-      warn(`${progress} Skipping "${chat.name}" — ${reason}`);
-      failed++;
-      continue;
-    }
-
-    if (chat.chatId && !(await waitForOpenChat(page, chat.chatId, 8000))) {
-      // A deep link Teams cannot open can leave it ignoring every later deep link
-      // too; a fresh app load clears that, so reload and try once more
-      log(`${progress} "${chat.name}": not open after 8s, reloading Teams and retrying`);
-      await reloadTeams(page);
-      const retry = await openViaDeepLink(page, chat);
-      if (!retry.success || !(await waitForOpenChat(page, chat.chatId, 20000))) {
-        warn(`${progress} Skipping "${chat.name}" — Teams shows a different chat than the one requested`);
-        failed++;
-        await reloadTeams(page);
-        continue;
-      }
-    }
-
-    // Fix chat name from sidebar if it shows the user's own name
-    if (navResult.sidebarName && currentUserName) {
-      const nameLower = chat.name.toLowerCase();
-      if (nameLower.includes(currentUserName.toLowerCase()) || nameLower.startsWith("chat_")) {
-        log(`${progress} Name resolved: "${chat.name}" -> "${navResult.sidebarName}"`);
-        chat.name = navResult.sidebarName;
-      }
-    }
-
-    // Pick the file by thread ID, never by name (see lib/chat-files.ts)
-    let filename: string | undefined;
-    let candidates: ExportFile[] = [];
-    if (chat.chatId) {
-      filename = fileIndex.boundFile(chat.chatId);
-      if (!filename) candidates = fileIndex.candidates(chat.name);
-    } else {
-      filename = sanitizeFilename(chat.name) + ".md"; // no thread ID: name lookup is all there is
-    }
-
-    const newestVisible = await getNewestVisibleTimestamp(page);
-
-    // An unchanged chat whose newest message ends an unbound file owns that file
-    if (!filename && newestVisible) {
-      const match = fileIndex.matchCandidate(chat.name, [newestVisible]);
-      if (match) filename = await adoptFile(chat, match.filename, progress);
-    }
-
-    // Quick-check: skip unchanged chats without expensive full extraction
-    if (filename && await canSkipChat(join(OUTPUT_DIR, filename), newestVisible)) {
-      log(`${progress} "${chat.name}": unchanged (quick-check), skipping`);
-      quickSkipped++;
-      continue;
-    }
-
-    // Scroll back only as far as needed: to this chat's last export, or for an
-    // unbound chat to the oldest candidate file, so a match can be recognised
-    let sinceTs: string | undefined;
-    if (filename) {
-      const lastExported = await getLatestTimestamp(join(OUTPUT_DIR, filename));
-      sinceTs = lastExported ? lastExported.toISOString() : undefined;
-    } else if (candidates.length > 0) {
-      const oldest = Math.min(...candidates.map((c) => c.lastMessage!.getTime()));
-      sinceTs = new Date(oldest).toISOString();
-    }
-
-    // Extract messages (scrolls only to sinceTs, not full history)
-    let result = await extractCurrentChat(page, DAYS, TIMEOUT_MS, SCROLL_DOWN, sinceTs);
-
-    if (!filename && chat.chatId && result?.messages.length) {
-      const match = fileIndex.matchCandidate(chat.name, result.messages.map((m) => m.timestamp));
-      if (match) {
-        filename = await adoptFile(chat, match.filename, progress);
-      } else {
-        // None of the candidates is this chat's: it gets a new file with its full history
-        if (sinceTs) result = await extractCurrentChat(page, DAYS, TIMEOUT_MS, SCROLL_DOWN, undefined);
-        filename = fileIndex.newFilename(chat.name, chat.chatId);
-        fileIndex.bind(chat.chatId, filename);
-      }
-    }
-
-    if (!result) {
-      warn(`${progress} "${chat.name}": extraction returned null`);
-      failed++;
-      continue;
-    }
-
-    if (result.error) {
-      warn(`${progress} "${chat.name}": ${result.error}`);
-      if (result.messages.length === 0) {
-        failed++;
-        continue;
-      }
-    }
-
-    if (result.messages.length === 0) {
-      log(`${progress} "${chat.name}": no messages found, skipping`);
-      skipped++;
-      continue;
-    }
-
-    if (chat.chatId && !(await waitForOpenChat(page, chat.chatId, 0))) {
-      warn(`${progress} "${chat.name}": the open chat changed during extraction, not saving`);
-      failed++;
-      continue;
-    }
-
-    // Save to file; a file error (seen: a transient EPERM) fails this chat, not the run
-    let newCount: number;
     try {
-      newCount = await saveChat(chat.name, result.messages, OUTPUT_DIR, { filename, chatId: chat.chatId });
+
+      if (chat.isEmpty) {
+        log(`${progress} "${chat.name}": empty conversation, skipping`);
+        emptySkipped++;
+        continue;
+      }
+
+      // Navigate to the chat
+      const navResult = await navigateToChat(page, chat);
+      if (!navResult.success) {
+        const reason = chat.isChannel ? "channel, not supported" : "could not navigate";
+        warn(`${progress} Skipping "${chat.name}" — ${reason}`);
+        failed++;
+        continue;
+      }
+
+      if (chat.chatId && !(await waitForOpenChat(page, chat.chatId, 8000))) {
+        // A deep link Teams cannot open can leave it ignoring every later deep link
+        // too; a fresh app load clears that, so reload and try once more
+        log(`${progress} "${chat.name}": not open after 8s, reloading Teams and retrying`);
+        await reloadTeams(page);
+        const retry = await openViaDeepLink(page, chat);
+        if (!retry.success || !(await waitForOpenChat(page, chat.chatId, 20000))) {
+          warn(`${progress} Skipping "${chat.name}" — Teams shows a different chat than the one requested`);
+          failed++;
+          await reloadTeams(page);
+          continue;
+        }
+      }
+
+      // Fix chat name from sidebar if it shows the user's own name
+      if (navResult.sidebarName && currentUserName) {
+        const nameLower = chat.name.toLowerCase();
+        if (nameLower.includes(currentUserName.toLowerCase()) || nameLower.startsWith("chat_")) {
+          log(`${progress} Name resolved: "${chat.name}" -> "${navResult.sidebarName}"`);
+          chat.name = navResult.sidebarName;
+        }
+      }
+
+      // Pick the file by thread ID, never by name (see lib/chat-files.ts)
+      let filename: string | undefined;
+      let candidates: ExportFile[] = [];
+      if (chat.chatId) {
+        filename = fileIndex.boundFile(chat.chatId);
+        if (!filename) candidates = fileIndex.candidates(chat.name);
+      } else {
+        filename = sanitizeFilename(chat.name) + ".md"; // no thread ID: name lookup is all there is
+      }
+
+      const newestVisible = await getNewestVisibleTimestamp(page);
+
+      // An unchanged chat whose newest message ends an unbound file owns that file
+      if (!filename && newestVisible) {
+        const match = fileIndex.matchCandidate(chat.name, [newestVisible]);
+        if (match) filename = await adoptFile(chat, match.filename, progress);
+      }
+
+      // Quick-check: skip unchanged chats without expensive full extraction
+      if (filename && await canSkipChat(join(OUTPUT_DIR, filename), newestVisible)) {
+        log(`${progress} "${chat.name}": unchanged (quick-check), skipping`);
+        quickSkipped++;
+        continue;
+      }
+
+      // Scroll back only as far as needed: to this chat's last export, or for an
+      // unbound chat to the oldest candidate file, so a match can be recognised
+      let sinceTs: string | undefined;
+      if (filename) {
+        const lastExported = await getLatestTimestamp(join(OUTPUT_DIR, filename));
+        sinceTs = lastExported ? lastExported.toISOString() : undefined;
+      } else if (candidates.length > 0) {
+        const oldest = Math.min(...candidates.map((c) => c.lastMessage!.getTime()));
+        sinceTs = new Date(oldest).toISOString();
+      }
+
+      // Extract messages (scrolls only to sinceTs, not full history)
+      let result = await extractCurrentChat(page, DAYS, TIMEOUT_MS, SCROLL_DOWN, sinceTs);
+
+      if (!filename && chat.chatId && result?.messages.length) {
+        const match = fileIndex.matchCandidate(chat.name, result.messages.map((m) => m.timestamp));
+        if (match) {
+          filename = await adoptFile(chat, match.filename, progress);
+        } else {
+          // None of the candidates is this chat's: it gets a new file with its full history
+          if (sinceTs) result = await extractCurrentChat(page, DAYS, TIMEOUT_MS, SCROLL_DOWN, undefined);
+          filename = fileIndex.newFilename(chat.name, chat.chatId);
+          fileIndex.bind(chat.chatId, filename);
+        }
+      }
+
+      if (!result) {
+        warn(`${progress} "${chat.name}": extraction returned null`);
+        failed++;
+        continue;
+      }
+
+      if (result.error) {
+        warn(`${progress} "${chat.name}": ${result.error}`);
+        if (result.messages.length === 0) {
+          failed++;
+          continue;
+        }
+      }
+
+      if (result.messages.length === 0) {
+        log(`${progress} "${chat.name}": no messages found, skipping`);
+        skipped++;
+        continue;
+      }
+
+      if (chat.chatId && !(await waitForOpenChat(page, chat.chatId, 0))) {
+        warn(`${progress} "${chat.name}": the open chat changed during extraction, not saving`);
+        failed++;
+        continue;
+      }
+
+      // Save to file; a file error (seen: a transient EPERM) fails this chat, not the run
+      let newCount: number;
+      try {
+        newCount = await saveChat(chat.name, result.messages, OUTPUT_DIR, { filename, chatId: chat.chatId });
+      } catch (e: any) {
+        warn(`${progress} "${chat.name}": could not write ${filename ?? "file"}: ${e.message}`);
+        failed++;
+        continue;
+      }
+
+      if (newCount === 0) {
+        log(`${progress} "${chat.name}": ${result.messages.length} messages, all already exported`);
+        skipped++;
+      } else {
+        log(
+          `${progress} "${chat.name}": ${newCount} new messages saved (${result.messages.length} total)`
+        );
+        exported++;
+      }
+
+      // Checkpoint after each chat
+      saveProgress(i, totalChats);
+
+      // Small delay between chats to avoid overwhelming Teams
+      await sleep(1000);
     } catch (e: any) {
-      warn(`${progress} "${chat.name}": could not write ${filename ?? "file"}: ${e.message}`);
+      // One failing chat (seen: a transient EPERM on an existing file) must not end the run
+      warn(`${progress} "${chat.name}": ${e.message}`);
       failed++;
-      continue;
     }
-
-    if (newCount === 0) {
-      log(`${progress} "${chat.name}": ${result.messages.length} messages, all already exported`);
-      skipped++;
-    } else {
-      log(
-        `${progress} "${chat.name}": ${newCount} new messages saved (${result.messages.length} total)`
-      );
-      exported++;
-    }
-
-    // Checkpoint after each chat
-    saveProgress(i, totalChats);
-
-    // Small delay between chats to avoid overwhelming Teams
-    await sleep(1000);
   }
 
   // Clear progress file on successful completion
@@ -1092,5 +1098,6 @@ main()
   })
   .catch((e) => {
     console.error("Fatal error:", e.message);
+    if (process.env.EXPORT_DEBUG) console.error(e.stack);
     process.exit(1);
   });
