@@ -215,6 +215,12 @@ async function connectToChrome(): Promise<{
     process.exit(1);
   }
 
+  // Playwright reroutes the browser's downloads into its own temp artifacts
+  // folder on attach. This is the user's everyday Chrome, so hand downloads
+  // back to Chrome's own settings; the exporter never downloads anything.
+  const cdp = await browser.newBrowserCDPSession();
+  await cdp.send("Browser.setDownloadBehavior", { behavior: "default" });
+
   const contexts = browser.contexts();
   if (contexts.length === 0) {
     console.error("No browser contexts found.");
