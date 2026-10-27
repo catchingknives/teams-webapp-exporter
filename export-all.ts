@@ -936,10 +936,10 @@ async function main() {
       continue;
     }
 
-    if (chat.chatId && !(await waitForOpenChat(page, chat.chatId, 20000))) {
+    if (chat.chatId && !(await waitForOpenChat(page, chat.chatId, 8000))) {
       // A deep link Teams cannot open can leave it ignoring every later deep link
       // too; a fresh app load clears that, so reload and try once more
-      log(`${progress} "${chat.name}": not open after 20s, reloading Teams and retrying`);
+      log(`${progress} "${chat.name}": not open after 8s, reloading Teams and retrying`);
       await reloadTeams(page);
       const retry = await openViaDeepLink(page, chat);
       if (!retry.success || !(await waitForOpenChat(page, chat.chatId, 20000))) {
