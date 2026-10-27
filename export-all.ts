@@ -1036,8 +1036,15 @@ async function main() {
       continue;
     }
 
-    // Save to file
-    const newCount = await saveChat(chat.name, result.messages, OUTPUT_DIR, { filename, chatId: chat.chatId });
+    // Save to file; a file error (seen: a transient EPERM) fails this chat, not the run
+    let newCount: number;
+    try {
+      newCount = await saveChat(chat.name, result.messages, OUTPUT_DIR, { filename, chatId: chat.chatId });
+    } catch (e: any) {
+      warn(`${progress} "${chat.name}": could not write ${filename ?? "file"}: ${e.message}`);
+      failed++;
+      continue;
+    }
 
     if (newCount === 0) {
       log(`${progress} "${chat.name}": ${result.messages.length} messages, all already exported`);
