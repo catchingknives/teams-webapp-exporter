@@ -703,6 +703,15 @@ async function waitForOpenChat(page: Page, chatId: string, timeoutMs: number): P
   }
 }
 
+/** Load the Teams app fresh and wait until the chat list is back. */
+async function reloadTeams(page: Page): Promise<void> {
+  const origin = new URL(page.url()).origin;
+  const teamsOrigin = origin.startsWith("https://teams.") ? origin : "https://teams.cloud.microsoft";
+  await page.goto(`${teamsOrigin}/v2/`, { waitUntil: "domcontentloaded" }).catch(() => {});
+  await page.waitForSelector("[data-fui-tree-item-value]", { timeout: 45000 }).catch(() => {});
+  await sleep(3000);
+}
+
 async function openViaDeepLink(page: Page, chat: ChatEntry): Promise<{ success: boolean }> {
   if (!chat.chatId || chat.isChannel) return { success: false };
 
@@ -928,9 +937,17 @@ async function main() {
     }
 
     if (chat.chatId && !(await waitForOpenChat(page, chat.chatId, 20000))) {
-      warn(`${progress} Skipping "${chat.name}" — Teams shows a different chat than the one requested`);
-      failed++;
-      continue;
+      // A deep link Teams cannot open can leave it ignoring every later deep link
+      // too; a fresh app load clears that, so reload and try once more
+      log(`${progress} "${chat.name}": not open after 20s, reloading Teams and retrying`);
+      await reloadTeams(page);
+      const retry = await openViaDeepLink(page, chat);
+      if (!retry.success || !(await waitForOpenChat(page, chat.chatId, 20000))) {
+        warn(`${progress} Skipping "${chat.name}" — Teams shows a different chat than the one requested`);
+        failed++;
+        await reloadTeams(page);
+        continue;
+      }
     }
 
     // Fix chat name from sidebar if it shows the user's own name
