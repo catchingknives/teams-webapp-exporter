@@ -925,6 +925,10 @@ async function main() {
   for (let i = startIndex; i < totalChats; i++) {
     const chat = chats[i];
     const progress = `[${i + 1}/${totalChats}]`;
+    if (page.isClosed()) {
+      // Without the tab every remaining chat fails instantly; stop so --resume picks up here
+      throw new Error(`the Teams tab was closed at ${progress}; reopen Teams and run again with --resume`);
+    }
     log(`${progress} Exporting: ${chat.name}...`);
     try {
 
