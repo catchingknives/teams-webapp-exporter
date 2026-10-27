@@ -152,11 +152,12 @@ export async function getLatestTimestamp(
 export async function saveChat(
   chatName: string,
   messages: ExtractedMessage[],
-  outputDir: string
+  outputDir: string,
+  target: { filename?: string; chatId?: string } = {}
 ): Promise<number> {
   await mkdir(outputDir, { recursive: true });
 
-  const filename = sanitizeFilename(chatName) + ".md";
+  const filename = target.filename ?? sanitizeFilename(chatName) + ".md";
   const filePath = join(outputDir, filename);
 
   // Check for existing export
@@ -195,7 +196,8 @@ export async function saveChat(
     await writeFile(filePath, appended, "utf-8");
   } else {
     // Fresh export
-    const header = `# ${chatName}\n\nExported: ${new Date().toISOString()}\n\n`;
+    const idLine = target.chatId ? `<!-- chat-id: ${target.chatId} -->\n` : "";
+    const header = `# ${chatName}\n${idLine}\nExported: ${new Date().toISOString()}\n\n`;
     const content = header + markdown + "\n" + metadata + "\n";
     await writeFile(filePath, content, "utf-8");
   }

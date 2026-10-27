@@ -36,6 +36,7 @@ import { join } from "path";
 import { writeFileSync, readFileSync, unlinkSync, existsSync, mkdirSync, appendFileSync } from "fs";
 import { analyzeRetention, formatRetentionSummary } from "./lib/retention";
 import { getToken, fetchAllChats } from "./lib/graph";
+import { ChatFileIndex, stampChatId, type ExportFile } from "./lib/chat-files";
 
 // ── CLI argument parsing ──────────────────────────────────────────────
 const { values: args } = parseArgs({
@@ -278,6 +279,9 @@ const sidebarThreadIds = new Set<string>();
 
 // Current user's display name (detected or provided via --user flag)
 let currentUserName: string | null = null;
+
+// Thread ID to export file bindings, loaded from the output folder at start
+let fileIndex: ChatFileIndex;
 
 async function discoverChats(page: Page): Promise<ChatEntry[]> {
   log("Discovering chats via Teams internal API...");
@@ -678,6 +682,27 @@ async function navigateToChat(page: Page, chat: ChatEntry): Promise<{ success: b
  * previous deep link would leave the old chat pane in the DOM, and its
  * messages would be saved under this chat's name.
  */
+/**
+ * Wait until the open conversation is the given thread. After a deep link,
+ * Teams first redraws the previously open chat and switches a few seconds
+ * later; extracting before the switch exported that other chat's messages.
+ */
+async function waitForOpenChat(page: Page, chatId: string, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const open = await page.evaluate((id) => {
+      const list = document.getElementById("chat-pane-list");
+      if (!list || !document.getElementById("chat-header-" + id)) return false;
+      const threads = Array.from(list.querySelectorAll("[data-track-thread-id]"))
+        .map((el) => el.getAttribute("data-track-thread-id"));
+      return threads.every((t) => t === id);
+    }, chatId).catch(() => false);
+    if (open) return true;
+    if (Date.now() >= deadline) return false;
+    await sleep(500);
+  }
+}
+
 async function openViaDeepLink(page: Page, chat: ChatEntry): Promise<{ success: boolean }> {
   if (!chat.chatId || chat.isChannel) return { success: false };
 
@@ -761,19 +786,26 @@ async function getNewestVisibleTimestamp(page: Page): Promise<string | null> {
  * Compares the newest visible DOM timestamp with the file's last-message marker.
  * Returns true if the chat can be skipped (no new messages).
  */
-async function canSkipChat(page: Page, chatName: string, outputDir: string): Promise<boolean> {
-  const filename = sanitizeFilename(chatName) + ".md";
-  const filePath = join(outputDir, filename);
-
+async function canSkipChat(filePath: string, newestVisible: string | null): Promise<boolean> {
   const lastExported = await getLatestTimestamp(filePath);
   if (!lastExported) return false; // No existing file — must extract
 
-  const newestVisible = await getNewestVisibleTimestamp(page);
   if (!newestVisible) return false; // Can't determine — extract to be safe
 
   const newestDate = new Date(newestVisible);
   // Skip if the newest visible message is at or before the last exported one
   return newestDate <= lastExported;
+}
+
+/**
+ * Bind a chat to an existing file that has no chat-id yet, by writing its
+ * thread ID into the file.
+ */
+async function adoptFile(chat: ChatEntry, filename: string, progress: string): Promise<string> {
+  await stampChatId(join(OUTPUT_DIR, filename), chat.chatId!);
+  fileIndex.bind(chat.chatId!, filename);
+  log(`${progress} "${chat.name}": bound to existing file ${filename}`);
+  return filename;
 }
 
 // ── Main ──────────────────────────────────────────────────────────────
@@ -790,6 +822,8 @@ async function main() {
   log(`Dry run:  ${DRY_RUN}`);
   if (CHAT_FILTER) log(`Filter:   "${CHAT_FILTER}"`);
   log("");
+
+  fileIndex = await ChatFileIndex.load(OUTPUT_DIR);
 
   const { page } = await connectToChrome();
 
@@ -832,7 +866,7 @@ async function main() {
   if (DRY_RUN) {
     log("\nChats found:");
     for (const chat of chats) {
-      const filename = sanitizeFilename(chat.name) + ".md";
+      const filename = (chat.chatId && fileIndex.boundFile(chat.chatId)) || "(not bound yet)";
       const flags = [
         chat.chatType || "",
         chat.isHidden ? "HIDDEN" : "",
@@ -893,6 +927,12 @@ async function main() {
       continue;
     }
 
+    if (chat.chatId && !(await waitForOpenChat(page, chat.chatId, 20000))) {
+      warn(`${progress} Skipping "${chat.name}" — Teams shows a different chat than the one requested`);
+      failed++;
+      continue;
+    }
+
     // Fix chat name from sidebar if it shows the user's own name
     if (navResult.sidebarName && currentUserName) {
       const nameLower = chat.name.toLowerCase();
@@ -902,20 +942,56 @@ async function main() {
       }
     }
 
+    // Pick the file by thread ID, never by name (see lib/chat-files.ts)
+    let filename: string | undefined;
+    let candidates: ExportFile[] = [];
+    if (chat.chatId) {
+      filename = fileIndex.boundFile(chat.chatId);
+      if (!filename) candidates = fileIndex.candidates(chat.name);
+    } else {
+      filename = sanitizeFilename(chat.name) + ".md"; // no thread ID: name lookup is all there is
+    }
+
+    const newestVisible = await getNewestVisibleTimestamp(page);
+
+    // An unchanged chat whose newest message ends an unbound file owns that file
+    if (!filename && newestVisible) {
+      const match = fileIndex.matchCandidate(chat.name, [newestVisible]);
+      if (match) filename = await adoptFile(chat, match.filename, progress);
+    }
+
     // Quick-check: skip unchanged chats without expensive full extraction
-    if (await canSkipChat(page, chat.name, OUTPUT_DIR)) {
+    if (filename && await canSkipChat(join(OUTPUT_DIR, filename), newestVisible)) {
       log(`${progress} "${chat.name}": unchanged (quick-check), skipping`);
       quickSkipped++;
       continue;
     }
 
-    // Look up last-exported timestamp to limit scrolling to only new messages
-    const filePath = join(OUTPUT_DIR, sanitizeFilename(chat.name) + ".md");
-    const lastExported = await getLatestTimestamp(filePath);
-    const sinceTs = lastExported ? lastExported.toISOString() : undefined;
+    // Scroll back only as far as needed: to this chat's last export, or for an
+    // unbound chat to the oldest candidate file, so a match can be recognised
+    let sinceTs: string | undefined;
+    if (filename) {
+      const lastExported = await getLatestTimestamp(join(OUTPUT_DIR, filename));
+      sinceTs = lastExported ? lastExported.toISOString() : undefined;
+    } else if (candidates.length > 0) {
+      const oldest = Math.min(...candidates.map((c) => c.lastMessage!.getTime()));
+      sinceTs = new Date(oldest).toISOString();
+    }
 
     // Extract messages (scrolls only to sinceTs, not full history)
-    const result = await extractCurrentChat(page, DAYS, TIMEOUT_MS, SCROLL_DOWN, sinceTs);
+    let result = await extractCurrentChat(page, DAYS, TIMEOUT_MS, SCROLL_DOWN, sinceTs);
+
+    if (!filename && chat.chatId && result?.messages.length) {
+      const match = fileIndex.matchCandidate(chat.name, result.messages.map((m) => m.timestamp));
+      if (match) {
+        filename = await adoptFile(chat, match.filename, progress);
+      } else {
+        // None of the candidates is this chat's: it gets a new file with its full history
+        if (sinceTs) result = await extractCurrentChat(page, DAYS, TIMEOUT_MS, SCROLL_DOWN, undefined);
+        filename = fileIndex.newFilename(chat.name, chat.chatId);
+        fileIndex.bind(chat.chatId, filename);
+      }
+    }
 
     if (!result) {
       warn(`${progress} "${chat.name}": extraction returned null`);
@@ -937,8 +1013,14 @@ async function main() {
       continue;
     }
 
+    if (chat.chatId && !(await waitForOpenChat(page, chat.chatId, 0))) {
+      warn(`${progress} "${chat.name}": the open chat changed during extraction, not saving`);
+      failed++;
+      continue;
+    }
+
     // Save to file
-    const newCount = await saveChat(chat.name, result.messages, OUTPUT_DIR);
+    const newCount = await saveChat(chat.name, result.messages, OUTPUT_DIR, { filename, chatId: chat.chatId });
 
     if (newCount === 0) {
       log(`${progress} "${chat.name}": ${result.messages.length} messages, all already exported`);
